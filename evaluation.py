@@ -1,22 +1,48 @@
 import pandas as pd
-import nltk.translate.bleu_score as bleu
+from nltk.translate.bleu_score import SmoothingFunction, sentence_bleu
+from rouge import Rouge
+import sys
+sys.setrecursionlimit(100000)
+
+
 
 class EvaluationModel:
     base_path = "./validation_result/postprocessed"
-    models = ["LEmodel_2", "LEmodel_3", "model1", "model2","model3", "llama"]
+    models = ["llama",
+              "LEmodel_2",
+              "LEmodel_3",
+              "model1",
+              "model3",
+              "model2"]
 
-    def load_result(self,model_name):
+    def load_result(self, model_name):
         df = pd.read_csv(f"{self.base_path}/{model_name}_validation_result.csv")
-        return df[['example','model']]
+        return df[['example', 'model']]
 
     def bleu(self, candidate, reference):
-        return bleu.sentence_bleu(list(map(lambda ref: ref.split(), [reference])), candidate.split())
+        cand = str(candidate).split()
+        ref = list(map(lambda ref: str(ref).split(), [reference]))
+        return sentence_bleu(ref, cand, smoothing_function=SmoothingFunction().method2)
 
-    def bleu_evaluation_models(self):
+    def rouge(self, hypothesis, reference):
+        rouge_scorer = Rouge()
+        score = rouge_scorer.get_scores(
+            hyps=str(hypothesis),
+            refs=str(reference),
+        )
+
+        return score[0]["rouge-l"]["f"]
+
+    def evaluation_all_models(self):
+        score_result = pd.DataFrame(columns=['name', 'bleu','rouge'])
         for model in self.models:
             validation_result = self.load_result(model)
-            result = validation_result.apply(lambda x: self.bleu(x['example'], x['model']), axis=1)
-            print(result)
+            bleu = validation_result.apply(lambda x: self.bleu(x['example'], x['model']), axis=1).mean()
+            bleu = round(bleu, 5)
+            rouge = validation_result.apply(lambda x: self.rouge(x['example'], x['model']), axis=1).mean()
+            rouge = round(rouge, 5)
+            data = pd.DataFrame({"name": model, "bleu": [bleu], 'rouge':[rouge]})
+            score_result = pd.concat([score_result, data])
+        score_result.to_csv("scores.csv", index=False)
 
-
-EvaluationModel().bleu_evaluation_models()
+EvaluationModel().evaluation_all_models()
